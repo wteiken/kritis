@@ -57,7 +57,7 @@ gcloud projects add-iam-policy-binding ${BUILDER_PROJECT_ID} --member=serviceAcc
 gcloud  projects add-iam-policy-binding ${BUILDER_PROJECT_ID} --member=serviceAccount:${SIGNER_ACCOUNT_EMAIL} --role=roles/containeranalysis.notes.viewer
 ```
 
-### PubSub Setup
+### Cloud Build PubSub Setup
 
 The signer uses PubSub to retrieve information about builds.  This requires the
 appropriate topics and subscriptions to be created and set up to allow
@@ -73,6 +73,25 @@ gcloud --project=${BUILDER_PROJECT_ID} beta pubsub subscriptions \
   --role=roles/pubsub.subscriber
 gcloud --project=${BUILDER_PROJECT_ID} beta pubsub subscriptions \
   add-iam-policy-binding build-signer \
+  --member=serviceAccount:${SIGNER_ACCOUNT_EMAIL} \
+  --role=roles/pubsub.viewer
+```
+
+### Container Analysis PubSub Setup
+
+The signer uses PubSub to retrieve information about vulnerability scan results.
+This requires the appropriate topics and subscriptions to be created and set up
+to allow `${SIGNER_ACCOUNT_EMAIL}` access.
+
+```shell
+gcloud --project=${BUILDER_PROJECT_ID} pubsub subscriptions \
+  create vuln-signer --topic=resource-notes-occurrences-v1alpha1
+gcloud --project=${BUILDER_PROJECT_ID} beta pubsub subscriptions \
+  add-iam-policy-binding vuln-signer \
+  --member=serviceAccount:${SIGNER_ACCOUNT_EMAIL} \
+  --role=roles/pubsub.subscriber
+gcloud --project=${BUILDER_PROJECT_ID} beta pubsub subscriptions \
+  add-iam-policy-binding vuln-signer \
   --member=serviceAccount:${SIGNER_ACCOUNT_EMAIL} \
   --role=roles/pubsub.viewer
 ```
