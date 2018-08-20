@@ -32,8 +32,9 @@ type Signer struct {
 }
 
 type Config struct {
-	Secret   secrets.Fetcher
-	Validate buildpolicy.ValidateFunc
+	Secret    secrets.Fetcher
+	Authority authority.Fetcher
+	Validate  buildpolicy.ValidateFunc
 }
 
 func New(client metadata.Fetcher, c *Config) Signer {
@@ -49,11 +50,6 @@ type BuildProvenance struct {
 	BuiltFrom string
 }
 
-// For testing
-var (
-	authFetcher = authority.Authority
-)
-
 // ValidateAndSign validates builtFrom against the build policies and creates
 // attestations for all authorities for the matching policies.
 // Returns an error if creating an attestation for any authority fails.
@@ -65,27 +61,40 @@ func (s Signer) ValidateAndSign(prov BuildProvenance, bps []v1beta1.BuildPolicy)
 			continue
 		}
 		glog.Infof("Image %q matches BuildPolicy %s, creating attestations", prov.ImageRef, bp.Name)
-		if err := s.addAttestation(prov.ImageRef, bp.Namespace, bp.Spec.AttestationAuthorityName); err != nil {
+		aa, err := r.config.Authority(bp.Namespace, bp.Spec.AttestationAuthorityName)
+		if err != nil {
+			return err
+		}
+		if err := r.addAttestation(aa, prov.ImageRef); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s Signer) addAttestation(image string, ns string, authority string) error {
-	// Get AttestaionAuthority specified in the buildpolicy.
-	a, err := authFetcher(ns, authority)
+func (r Signer) addAttestation(aa *v1beta1.AttestationAuthority, image string) error {
+	glog.Infof("Ceate attestation by %q for %q", image, aa.Name)
+	// Get or Create Note for this this Authority
+	n, err := r.getOrCreateAttestationNote(aa)
 	if err != nil {
-		return err
-	}
-	n, err := util.GetOrCreateAttestationNote(s.client, a)
-	if err != nil {
-		return err
+		return fmt.Errorf("error getting note for %q: %v", aa.Name, err)
 	}
 	// Get secret for this Authority
-	sec, err := s.config.Secret(ns, a.Spec.PrivateKeySecretName)
+	s, err := r.config.Secret(aa.ObjectMeta.Namespace, aa.Spec.PrivateKeySecretName)
 	if err != nil {
-		return err
+		return fmt.Errorf("error getting secret for %q: %v", aa.Name, err)
+	}
+	// Create Attestation Signature
+	if _, err := r.client.CreateAttestationOccurence(n, image, s); err != nil {
+		return fmt.Errorf("error adding attestation for %q: %v", aa.Name, err)
+	}
+	return nil
+}
+
+func (r Signer) getOrCreateAttestationNote(a *v1beta1.AttestationAuthority) (*containeranalysispb.Note, error) {
+	n, err := r.client.GetAttestationNote(a)
+	if err == nil {
+		return n, nil
 	}
 	// Create Attestation Signature
 	_, err = s.client.CreateAttestationOccurence(n, image, sec)

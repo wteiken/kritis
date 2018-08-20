@@ -46,6 +46,7 @@ type PackageVulnerabilityRequirements struct {
 
 // ImageSecurityPolicy is the spec for a ImageSecurityPolicy resource
 type ImageSecurityPolicySpec struct {
+	AttestationAuthorityName         string                           `yaml:"attestationAuthorityName"`
 	ImageWhitelist                   []string                         `json:"imageWhitelist"`
 	PackageVulnerabilityRequirements PackageVulnerabilityRequirements `json:"packageVulnerabilityRequirements"`
 }

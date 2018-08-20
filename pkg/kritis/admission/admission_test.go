@@ -30,7 +30,7 @@ import (
 	"github.com/grafeas/kritis/pkg/kritis/metadata"
 	"github.com/grafeas/kritis/pkg/kritis/testutil"
 	"k8s.io/api/admission/v1beta1"
-	"k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -46,8 +46,8 @@ type testConfig struct {
 // TODO (tejaldesai): Move these tests to review/review_test.go and mock
 // review.Reviewer here.
 func Test_BreakglassAnnotation(t *testing.T) {
-	mockPod := func(r *http.Request) (*v1.Pod, v1beta1.AdmissionReview, error) {
-		return &v1.Pod{
+	mockPod := func(r *http.Request) (*corev1.Pod, v1beta1.AdmissionReview, error) {
+		return &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Annotations: map[string]string{"kritis.grafeas.io/breakglass": "true"},
 			},
@@ -65,10 +65,10 @@ func Test_BreakglassAnnotation(t *testing.T) {
 	})
 }
 func Test_UnqualifiedImage(t *testing.T) {
-	mockPod := func(r *http.Request) (*v1.Pod, v1beta1.AdmissionReview, error) {
-		return &v1.Pod{
-			Spec: v1.PodSpec{
-				Containers: []v1.Container{
+	mockPod := func(r *http.Request) (*corev1.Pod, v1beta1.AdmissionReview, error) {
+		return &corev1.Pod{
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
 					{
 						Image: "image:tag",
 					},
@@ -77,13 +77,19 @@ func Test_UnqualifiedImage(t *testing.T) {
 		}, v1beta1.AdmissionReview{}, nil
 	}
 	mockISP := func(namespace string) ([]kritisv1beta1.ImageSecurityPolicy, error) {
-		return []kritisv1beta1.ImageSecurityPolicy{{}}, nil
+		return []kritisv1beta1.ImageSecurityPolicy{
+			{
+				Spec: kritisv1beta1.ImageSecurityPolicySpec{
+					AttestationAuthorityName: "test-aa",
+				},
+			},
+		}, nil
 	}
-
 	mockConfig := config{
 		retrievePod:                mockPod,
 		fetchMetadataClient:        testutil.NilFetcher(),
 		fetchImageSecurityPolicies: mockISP,
+		fetchAuthority:             mockAuthority,
 	}
 	RunTest(t, testConfig{
 		mockConfig: mockConfig,
@@ -99,7 +105,8 @@ func Test_ValidISP(t *testing.T) {
 		return []kritisv1beta1.ImageSecurityPolicy{
 			{
 				Spec: kritisv1beta1.ImageSecurityPolicySpec{
-					ImageWhitelist: []string{testutil.QualifiedImage},
+					AttestationAuthorityName: "test-aa",
+					ImageWhitelist:           []string{testutil.QualifiedImage},
 					PackageVulnerabilityRequirements: kritisv1beta1.PackageVulnerabilityRequirements{
 						MaximumSeverity: "LOW",
 					},
@@ -111,6 +118,7 @@ func Test_ValidISP(t *testing.T) {
 		retrievePod:                mockValidPod(),
 		fetchMetadataClient:        testutil.NilFetcher(),
 		fetchImageSecurityPolicies: mockISP,
+		fetchAuthority:             mockAuthority,
 	}
 	RunTest(t, testConfig{
 		mockConfig: mockConfig,
@@ -125,6 +133,7 @@ func Test_InvalidISP(t *testing.T) {
 	mockISP := func(namespace string) ([]kritisv1beta1.ImageSecurityPolicy, error) {
 		return []kritisv1beta1.ImageSecurityPolicy{{
 			Spec: kritisv1beta1.ImageSecurityPolicySpec{
+				AttestationAuthorityName: "test-aa",
 				PackageVulnerabilityRequirements: kritisv1beta1.PackageVulnerabilityRequirements{
 					MaximumSeverity: "LOW",
 				},
@@ -139,11 +148,11 @@ func Test_InvalidISP(t *testing.T) {
 					HasFixAvailable: true,
 				},
 			},
-			PGPAttestations: []metadata.PGPAttestation{
-				{
+			PGPAttestations: map[string][]metadata.PGPAttestation{
+				"test-aa": {{
 					Signature: "sig",
 					KeyID:     "secret",
-				},
+				}},
 			},
 		}, nil
 	}
@@ -151,6 +160,7 @@ func Test_InvalidISP(t *testing.T) {
 		retrievePod:                mockValidPod(),
 		fetchMetadataClient:        mockMetadata,
 		fetchImageSecurityPolicies: mockISP,
+		fetchAuthority:             mockAuthority,
 	}
 	RunTest(t, testConfig{
 		mockConfig: mockConfig,
@@ -165,16 +175,17 @@ func Test_GlobalWhitelist(t *testing.T) {
 	mockISP := func(namespace string) ([]kritisv1beta1.ImageSecurityPolicy, error) {
 		return []kritisv1beta1.ImageSecurityPolicy{{
 			Spec: kritisv1beta1.ImageSecurityPolicySpec{
+				AttestationAuthorityName: "test-aa",
 				PackageVulnerabilityRequirements: kritisv1beta1.PackageVulnerabilityRequirements{
 					MaximumSeverity: "LOW",
 				},
 			},
 		}}, nil
 	}
-	mockPod := func(r *http.Request) (*v1.Pod, v1beta1.AdmissionReview, error) {
-		return &v1.Pod{
-			Spec: v1.PodSpec{
-				Containers: []v1.Container{
+	mockPod := func(r *http.Request) (*corev1.Pod, v1beta1.AdmissionReview, error) {
+		return &corev1.Pod{
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
 					{
 						Image: "gcr.io/kritis-project/kritis-server:tag",
 					},
@@ -196,11 +207,11 @@ func Test_GlobalWhitelist(t *testing.T) {
 	})
 }
 
-func mockValidPod() func(r *http.Request) (*v1.Pod, v1beta1.AdmissionReview, error) {
-	return func(r *http.Request) (*v1.Pod, v1beta1.AdmissionReview, error) {
-		return &v1.Pod{
-			Spec: v1.PodSpec{
-				Containers: []v1.Container{
+func mockValidPod() func(r *http.Request) (*corev1.Pod, v1beta1.AdmissionReview, error) {
+	return func(r *http.Request) (*corev1.Pod, v1beta1.AdmissionReview, error) {
+		return &corev1.Pod{
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
 					{
 						Image: testutil.QualifiedImage,
 					},
@@ -272,5 +283,21 @@ func PodTestReviewHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := w.Write(payload); err != nil {
 		glog.Errorf("unable to write payload: %v", err)
+	}
+}
+
+func mockAuthority(ns string, auth string) (*kritisv1beta1.AttestationAuthority, error) {
+	switch auth {
+	case "test-aa":
+		return &kritisv1beta1.AttestationAuthority{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-aa",
+				Namespace: "foo",
+			},
+			Spec: kritisv1beta1.AttestationAuthoritySpec{
+				NoteReference: "provider/test",
+			}}, nil
+	default:
+		return nil, fmt.Errorf("no such AA")
 	}
 }

@@ -33,8 +33,8 @@ type Fetcher interface {
 	GetAttestationNote(aa *kritisv1beta1.AttestationAuthority) (*containeranalysispb.Note, error)
 	// Create Attestation Note for an Attestation Authority.
 	CreateAttestationNote(aa *kritisv1beta1.AttestationAuthority) (*containeranalysispb.Note, error)
-	// Get Attestation Occurrences for given image.
-	GetAttestations(containerImage string) ([]PGPAttestation, error)
+	// Get Attestation Occurrences by the Attestation Authority for given image.
+	GetAttestations(aa *kritisv1beta1.AttestationAuthority, containerImage string) ([]PGPAttestation, error)
 }
 
 type Vulnerability struct {

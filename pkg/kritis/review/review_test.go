@@ -18,7 +18,6 @@ package review
 
 import (
 	"fmt"
-	"reflect"
 	"testing"
 
 	"github.com/grafeas/kritis/pkg/kritis/apis/kritis/v1beta1"
@@ -70,6 +69,13 @@ func TestHasValidAttestations(t *testing.T) {
 				KeyID:     "test-success",
 			}}},
 	}
+	aa := &v1beta1.AttestationAuthority{
+		Spec: v1beta1.AttestationAuthoritySpec{
+			NoteReference:        "v1alpha1/projects/test",
+			PrivateKeySecretName: "test-success",
+			PublicKeyData:        successSec.PublicKey,
+		},
+	}
 	secs := map[string]*secrets.PGPSigningSecret{
 		"test-success": successSec,
 	}
@@ -82,16 +88,14 @@ func TestHasValidAttestations(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			cMock := &testutil.MockMetadataClient{
-				PGPAttestations: tc.attestations,
-			}
+			cMock := &testutil.MockMetadataClient{}
 			r := New(cMock, &Config{
 				Validate:  nil,
 				Secret:    sMock,
 				IsWebhook: true,
 				Strategy:  nil,
 			})
-			actual := r.hasValidImageAttestations(testutil.QualifiedImage, tc.attestations, "test-namespace")
+			actual := r.hasValidImageAttestations(aa, testutil.QualifiedImage, tc.attestations)
 			if actual != tc.expected {
 				t.Fatalf("Expected %v, Got %v", tc.expected, actual)
 			}
@@ -113,23 +117,42 @@ func TestReview(t *testing.T) {
 		t.Fatalf("unexpected error %v", err)
 	}
 	sMock := func(namespace string, name string) (*secrets.PGPSigningSecret, error) {
-		return sec, nil
+		switch name {
+		case "sec":
+			return sec, nil
+		default:
+			return nil, fmt.Errorf("key not found")
+		}
 	}
-	validAtts := []metadata.PGPAttestation{{Signature: sigVuln, KeyID: "sec"}}
+	aMock := func(ns string, auth string) (*v1beta1.AttestationAuthority, error) {
+		switch auth {
+		case "test-aa":
+			return &v1beta1.AttestationAuthority{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-aa",
+					Namespace: "foo",
+				},
+				Spec: v1beta1.AttestationAuthoritySpec{
+					NoteReference:        "provider/test",
+					PrivateKeySecretName: "sec",
+					PublicKeyData:        sec.PublicKey,
+				}}, nil
+		default:
+			return nil, fmt.Errorf("no such AA")
+		}
+	}
+	validAtts := map[string][]metadata.PGPAttestation{
+		"test-aa": {{Signature: sigVuln, KeyID: "sec"}},
+	}
 	var isps = []v1beta1.ImageSecurityPolicy{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "foo",
 			},
+			Spec: v1beta1.ImageSecurityPolicySpec{
+				AttestationAuthorityName: "test-aa",
+			},
 		},
-	}
-	authFetcher = func(ns string) ([]v1beta1.AttestationAuthority, error) {
-		return []v1beta1.AttestationAuthority{{
-			Spec: v1beta1.AttestationAuthoritySpec{
-				NoteReference:        "provider/test",
-				PrivateKeySecretName: "test",
-				PublicKeyData:        sec.PublicKey,
-			}}}, nil
 	}
 	testValidate := func(isp v1beta1.ImageSecurityPolicy, image string, client metadata.Fetcher) ([]securitypolicy.Violation, error) {
 		if image == vulnImage {
@@ -148,7 +171,7 @@ func TestReview(t *testing.T) {
 		name              string
 		image             string
 		isWebhook         bool
-		attestations      []metadata.PGPAttestation
+		attestations      map[string][]metadata.PGPAttestation
 		handledViolations int
 		isAttested        bool
 		shdAttestImage    bool
@@ -168,7 +191,7 @@ func TestReview(t *testing.T) {
 			name:              "vulnz w/o attestation for Webhook shd handle voilations",
 			image:             vulnImage,
 			isWebhook:         true,
-			attestations:      []metadata.PGPAttestation{},
+			attestations:      map[string][]metadata.PGPAttestation{},
 			handledViolations: 1,
 			isAttested:        false,
 			shdAttestImage:    false,
@@ -178,7 +201,7 @@ func TestReview(t *testing.T) {
 			name:              "no vulnz w/o attestation for webhook shd add attestation",
 			image:             noVulnImage,
 			isWebhook:         true,
-			attestations:      []metadata.PGPAttestation{},
+			attestations:      map[string][]metadata.PGPAttestation{},
 			handledViolations: 0,
 			isAttested:        false,
 			shdAttestImage:    true,
@@ -198,7 +221,7 @@ func TestReview(t *testing.T) {
 			name:              "vulnz w/o attestation for cron shd handle vuln",
 			image:             vulnImage,
 			isWebhook:         false,
-			attestations:      []metadata.PGPAttestation{},
+			attestations:      map[string][]metadata.PGPAttestation{},
 			handledViolations: 1,
 			isAttested:        false,
 			shdAttestImage:    false,
@@ -208,17 +231,19 @@ func TestReview(t *testing.T) {
 			name:              "no vulnz w/o attestation for cron shd verify attestations",
 			image:             noVulnImage,
 			isWebhook:         false,
-			attestations:      []metadata.PGPAttestation{},
+			attestations:      map[string][]metadata.PGPAttestation{},
 			handledViolations: 0,
 			isAttested:        false,
 			shdAttestImage:    false,
 			shdErr:            false,
 		},
 		{
-			name:              "no vulnz w attestation for cron shd verify attestations",
-			image:             noVulnImage,
-			isWebhook:         false,
-			attestations:      []metadata.PGPAttestation{{Signature: sigNoVuln, KeyID: "sec"}},
+			name:      "no vulnz w attestation for cron shd verify attestations",
+			image:     noVulnImage,
+			isWebhook: false,
+			attestations: map[string][]metadata.PGPAttestation{
+				"test-aa": {{Signature: sigNoVuln, KeyID: "sec"}},
+			},
 			handledViolations: 0,
 			isAttested:        true,
 			shdAttestImage:    false,
@@ -237,6 +262,7 @@ func TestReview(t *testing.T) {
 			r := New(cMock, &Config{
 				Validate:  testValidate,
 				Secret:    sMock,
+				Authority: aMock,
 				IsWebhook: tc.isWebhook,
 				Strategy:  &th,
 			})
@@ -253,31 +279,6 @@ func TestReview(t *testing.T) {
 			if (len(cMock.Occ) != 0) != tc.shdAttestImage {
 				t.Errorf("expected an image to be attested, but found none")
 			}
-		})
-	}
-}
-
-func TestGetUnAttested(t *testing.T) {
-	tcs := []struct {
-		name     string
-		authIds  []string
-		attIds   []string
-		eAuthIds []string
-	}{
-		{"not equal", []string{"a", "b"}, []string{"a"}, []string{"b"}},
-		{"equal", []string{"a", "b"}, []string{"a", "b"}, []string{}},
-	}
-
-	for _, tc := range tcs {
-		t.Run(tc.name, func(t *testing.T) {
-			auths := makeAuth(tc.authIds)
-			atts := makeAtt(tc.attIds)
-			expected := makeAuth(tc.eAuthIds)
-			actual := getUnAttested(auths, atts)
-			if !reflect.DeepEqual(actual, expected) {
-				t.Fatalf("Expected: %v\n Got: %v", expected, actual)
-			}
-
 		})
 	}
 }

@@ -18,6 +18,7 @@ package cron
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -28,7 +29,7 @@ import (
 	"github.com/grafeas/kritis/pkg/kritis/secrets"
 	"github.com/grafeas/kritis/pkg/kritis/testutil"
 	"github.com/grafeas/kritis/pkg/kritis/violation"
-	"k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -84,22 +85,22 @@ func (iv *imageViolations) violationChecker(isp v1beta1.ImageSecurityPolicy, ima
 }
 
 type testLister struct {
-	pl []v1.Pod
+	pl []corev1.Pod
 }
 
-func (tl *testLister) list(ns string) ([]v1.Pod, error) {
+func (tl *testLister) list(ns string) ([]corev1.Pod, error) {
 	return tl.pl, nil
 }
 
 var testPods = testLister{
-	pl: []v1.Pod{
+	pl: []corev1.Pod{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "foo",
 				Namespace: "bar",
 			},
-			Spec: v1.PodSpec{
-				Containers: []v1.Container{
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
 					{
 						Image: testutil.QualifiedImage,
 					},
@@ -123,6 +124,9 @@ var isps = []v1beta1.ImageSecurityPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "foo",
 		},
+		Spec: v1beta1.ImageSecurityPolicySpec{
+			AttestationAuthorityName: "test-aa",
+		},
 	},
 }
 
@@ -133,6 +137,24 @@ func TestCheckPods(t *testing.T) {
 			PrivateKey: "private",
 			SecretName: name,
 		}, nil
+	}
+	sec := testutil.CreateSecret(t, "sec")
+	aMock := func(ns string, auth string) (*v1beta1.AttestationAuthority, error) {
+		switch auth {
+		case "test-aa":
+			return &v1beta1.AttestationAuthority{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-aa",
+					Namespace: "foo",
+				},
+				Spec: v1beta1.AttestationAuthoritySpec{
+					NoteReference:        "provider/test",
+					PrivateKeySecretName: "sec",
+					PublicKeyData:        sec.PublicKey,
+				}}, nil
+		default:
+			return nil, fmt.Errorf("no such AA")
+		}
 	}
 	cMock := &testutil.MockMetadataClient{}
 	type args struct {
@@ -202,6 +224,7 @@ func TestCheckPods(t *testing.T) {
 		tt.args.cfg.ReviewConfig = &review.Config{
 			Validate:  tt.args.validate,
 			Secret:    sMock,
+			Authority: aMock,
 			IsWebhook: false,
 			Strategy:  &th,
 		}

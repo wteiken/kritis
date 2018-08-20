@@ -72,8 +72,11 @@ func (c ContainerAnalysis) GetVulnerabilities(containerImage string) ([]metadata
 }
 
 // GetAttestation gets AttesationAuthority Occurrences for a specified image.
-func (c ContainerAnalysis) GetAttestations(containerImage string) ([]metadata.PGPAttestation, error) {
-	occs, err := c.fetchOccurrence(containerImage, AttestationAuthority)
+func (c ContainerAnalysis) GetAttestations(aa *kritisv1beta1.AttestationAuthority, containerImage string) ([]metadata.PGPAttestation, error) {
+	if err := aa.IsValid(); err != nil {
+		return nil, fmt.Errorf("invalid attestation authority %q: %v", aa.Name, err)
+	}
+	occs, err := c.fetchOccurrenceForNote(aa.GetNoteName(), containerImage)
 	if err != nil {
 		return nil, err
 	}
@@ -96,6 +99,31 @@ func (c ContainerAnalysis) fetchOccurrence(containerImage string, kind string) (
 		Parent:   fmt.Sprintf("projects/%s", project),
 	}
 	it := c.client.ListOccurrences(c.ctx, req)
+	occs := []*containeranalysispb.Occurrence{}
+	for {
+		occ, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		occs = append(occs, occ)
+	}
+	return occs, nil
+}
+
+func (c ContainerAnalysis) fetchOccurrenceForNote(noteName string, containerImage string) ([]*containeranalysispb.Occurrence, error) {
+	// Make sure container image valid and is a GCR image
+	if !isValidImageOnGCR(containerImage) {
+		return nil, fmt.Errorf("%s is not a valid image hosted in GCR", containerImage)
+	}
+	req := &containeranalysispb.ListNoteOccurrencesRequest{
+		Filter:   fmt.Sprintf("resource_url=%q", getResourceURL(containerImage)),
+		Name:     noteName,
+		PageSize: constants.PageSize,
+	}
+	it := c.client.ListNoteOccurrences(c.ctx, req)
 	occs := []*containeranalysispb.Occurrence{}
 	for {
 		occ, err := it.Next()

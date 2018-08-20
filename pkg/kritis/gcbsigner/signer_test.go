@@ -29,18 +29,16 @@ import (
 )
 
 func TestValidateAndSign(t *testing.T) {
-	sec1 := testutil.CreateSecret(t, "auth1_key")
-	sec2 := testutil.CreateSecret(t, "auth2_key")
-	sec3 := testutil.CreateSecret(t, "auth3_key")
+	keys := map[string]*secrets.PGPSigningSecret{
+		"auth1_key": testutil.CreateSecret(t, "auth1_key"),
+		"auth2_key": testutil.CreateSecret(t, "auth2_key"),
+		"auth3_key": testutil.CreateSecret(t, "auth3_key"),
+	}
 	sMock := func(namespace string, name string) (*secrets.PGPSigningSecret, error) {
-		switch name {
-		case "auth1_key":
-			return sec1, nil
-		case "auth2_key":
-			return sec2, nil
-		case "auth3_key":
-			return sec3, nil
-		default:
+		sec, ok := keys[name]
+		if ok {
+			return sec, nil
+		} else {
 			return nil, fmt.Errorf("No key for %q", name)
 		}
 	}
@@ -94,42 +92,22 @@ func TestValidateAndSign(t *testing.T) {
 			},
 		},
 	}
-	authFetcher = func(ns string, name string) (*v1beta1.AttestationAuthority, error) {
-		a := []v1beta1.AttestationAuthority{
-			{
+	aMock := func(ns string, auth string) (*v1beta1.AttestationAuthority, error) {
+		switch auth {
+		case "auth1", "auth2", "auth3":
+			return &v1beta1.AttestationAuthority{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "auth1",
+					Name:      auth,
 					Namespace: "foo",
 				},
 				Spec: v1beta1.AttestationAuthoritySpec{
-					NoteReference:        "auth1_note",
-					PrivateKeySecretName: "auth1_key",
-					PublicKeyData:        sec1.PublicKey,
+					NoteReference:        auth + "_note",
+					PrivateKeySecretName: auth + "_key",
+					PublicKeyData:        keys[auth+"_key"].PublicKey,
 				},
-			},
-			{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "auth2",
-					Namespace: "foo",
-				},
-				Spec: v1beta1.AttestationAuthoritySpec{
-					NoteReference:        "auth2_note",
-					PrivateKeySecretName: "auth2_key",
-					PublicKeyData:        sec2.PublicKey,
-				},
-			},
-			{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "auth3",
-					Namespace: "foo",
-				},
-				Spec: v1beta1.AttestationAuthoritySpec{
-					NoteReference:        "auth3_note",
-					PrivateKeySecretName: "auth3_key",
-					PublicKeyData:        sec3.PublicKey,
-				},
-			},
-			{
+			}, nil
+		case "auth4":
+			return &v1beta1.AttestationAuthority{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "auth4",
 					Namespace: "foo",
@@ -138,14 +116,10 @@ func TestValidateAndSign(t *testing.T) {
 					NoteReference:        "auth4_note",
 					PrivateKeySecretName: "missing_key",
 				},
-			},
+			}, nil
+		default:
+			return nil, fmt.Errorf("unknown aa")
 		}
-		for _, i := range a {
-			if i.Name == name {
-				return &i, nil
-			}
-		}
-		return nil, fmt.Errorf("not present")
 	}
 
 	tests := []struct {
@@ -195,8 +169,9 @@ func TestValidateAndSign(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cMock := &testutil.MockMetadataClient{}
 			r := New(cMock, &Config{
-				Validate: buildpolicy.ValidateBuildPolicy,
-				Secret:   sMock,
+				Validate:  buildpolicy.ValidateBuildPolicy,
+				Secret:    sMock,
+				Authority: aMock,
 			})
 			if err := r.ValidateAndSign(tc.provenance, bps); (err != nil) != tc.shdErr {
 				t.Errorf("ValidateAndSign returned error %s, want %t", err, tc.shdErr)

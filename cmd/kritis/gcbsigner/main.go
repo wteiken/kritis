@@ -21,6 +21,7 @@ import (
 	"os"
 
 	"github.com/golang/glog"
+	"github.com/grafeas/kritis/pkg/kritis/crd/authority"
 	"github.com/grafeas/kritis/pkg/kritis/crd/buildpolicy"
 	"github.com/grafeas/kritis/pkg/kritis/gcbsigner"
 	"github.com/grafeas/kritis/pkg/kritis/metadata/containeranalysis"
@@ -83,8 +84,9 @@ func process(ns string, msg *pubsub.Message) error {
 	}
 
 	r := gcbsigner.New(client, &gcbsigner.Config{
-		Secret:   secrets.Fetch,
-		Validate: buildpolicy.ValidateBuildPolicy,
+		Secret:    secrets.Fetch,
+		Authority: authority.Fetch,
+		Validate:  buildpolicy.ValidateBuildPolicy,
 	})
 	for _, prov := range provenance {
 		if err := r.ValidateAndSign(prov, bps); err != nil {

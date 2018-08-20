@@ -25,6 +25,23 @@ import (
 	"k8s.io/client-go/rest"
 )
 
+// Fetcher is the function used to fetch an authority
+type Fetcher func(namespace string, name string) (*v1beta1.AttestationAuthority, error)
+
+// Fetch returns the AttestationAuthority 'auth' in the specified namespace.
+func Fetch(namespace string, authority string) (*v1beta1.AttestationAuthority, error) {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, fmt.Errorf("error building config: %v", err)
+	}
+
+	client, err := clientset.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("error building clientset: %v", err)
+	}
+	return client.KritisV1beta1().AttestationAuthorities(namespace).Get(authority, metav1.GetOptions{})
+}
+
 // Authorities returns all AttestationAuthority in the specified namespaces
 // Pass in an empty string to get all ISPs in all namespaces
 func Authorities(namespace string) ([]v1beta1.AttestationAuthority, error) {

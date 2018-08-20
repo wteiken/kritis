@@ -27,6 +27,7 @@ import (
 	"github.com/grafeas/kritis/pkg/kritis/admission/constants"
 	kritisv1beta1 "github.com/grafeas/kritis/pkg/kritis/apis/kritis/v1beta1"
 	kritisconstants "github.com/grafeas/kritis/pkg/kritis/constants"
+	"github.com/grafeas/kritis/pkg/kritis/crd/authority"
 	"github.com/grafeas/kritis/pkg/kritis/crd/securitypolicy"
 	"github.com/grafeas/kritis/pkg/kritis/metadata"
 	"github.com/grafeas/kritis/pkg/kritis/metadata/containeranalysis"
@@ -35,17 +36,18 @@ import (
 	"github.com/grafeas/kritis/pkg/kritis/violation"
 	"k8s.io/api/admission/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
-	"k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 )
 
 type config struct {
-	retrievePod                func(r *http.Request) (*v1.Pod, v1beta1.AdmissionReview, error)
+	retrievePod                func(r *http.Request) (*corev1.Pod, v1beta1.AdmissionReview, error)
 	retrieveDeployment         func(r *http.Request) (*appsv1.Deployment, v1beta1.AdmissionReview, error)
 	fetchMetadataClient        func() (metadata.Fetcher, error)
 	fetchImageSecurityPolicies func(namespace string) ([]kritisv1beta1.ImageSecurityPolicy, error)
+	fetchAuthority             authority.Fetcher
 }
 
 var (
@@ -55,6 +57,7 @@ var (
 		retrieveDeployment:         unmarshalDeployment,
 		fetchMetadataClient:        metadataClient,
 		fetchImageSecurityPolicies: securitypolicy.ImageSecurityPolicies,
+		fetchAuthority:             authority.Fetch,
 	}
 
 	defaultViolationStrategy = &violation.LoggingStrategy{}
@@ -82,7 +85,8 @@ func handleDeployment(ar *v1beta1.AdmissionReview, admitResponse *v1beta1.Admiss
 }
 
 func handlePod(ar *v1beta1.AdmissionReview, admitResponse *v1beta1.AdmissionReview) error {
-	pod := v1.Pod{}
+	glog.Info("handling pod...")
+	pod := corev1.Pod{}
 	if err := json.Unmarshal(ar.Request.Object.Raw, &pod); err != nil {
 		return err
 	}
@@ -200,7 +204,7 @@ func createDeniedResponse(ar *v1beta1.AdmissionReview, message string) {
 	}
 }
 
-func reviewImages(images []string, ns string, pod *v1.Pod, ar *v1beta1.AdmissionReview) {
+func reviewImages(images []string, ns string, pod *corev1.Pod, ar *v1beta1.AdmissionReview) {
 	isps, err := admissionConfig.fetchImageSecurityPolicies(ns)
 	if err != nil {
 		errMsg := fmt.Sprintf("error getting image security policies: %v", err)
@@ -220,6 +224,7 @@ func reviewImages(images []string, ns string, pod *v1.Pod, ar *v1beta1.Admission
 		Strategy:  defaultViolationStrategy,
 		IsWebhook: true,
 		Secret:    secrets.Fetch,
+		Authority: admissionConfig.fetchAuthority,
 		Validate:  securitypolicy.ValidateImageSecurityPolicyGen(),
 	})
 
@@ -228,7 +233,7 @@ func reviewImages(images []string, ns string, pod *v1.Pod, ar *v1beta1.Admission
 	}
 }
 
-func reviewPod(pod *v1.Pod, ar *v1beta1.AdmissionReview) {
+func reviewPod(pod *corev1.Pod, ar *v1beta1.AdmissionReview) {
 	images := PodImages(*pod)
 	// check if the Pod's owner has already been validated
 	if checkOwners(images, &pod.ObjectMeta) {
@@ -259,7 +264,7 @@ func reviewReplicaSet(replicaSet *appsv1.ReplicaSet, ar *v1beta1.AdmissionReview
 }
 
 // TODO(aaron-prindle) remove these functions
-func unmarshalPod(r *http.Request) (*v1.Pod, v1beta1.AdmissionReview, error) {
+func unmarshalPod(r *http.Request) (*corev1.Pod, v1beta1.AdmissionReview, error) {
 	ar := v1beta1.AdmissionReview{}
 	data, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -268,7 +273,7 @@ func unmarshalPod(r *http.Request) (*v1.Pod, v1beta1.AdmissionReview, error) {
 	if err := json.Unmarshal(data, &ar); err != nil {
 		return nil, ar, err
 	}
-	pod := v1.Pod{}
+	pod := corev1.Pod{}
 	if err := json.Unmarshal(ar.Request.Object.Raw, &pod); err != nil {
 		return nil, ar, err
 	}
