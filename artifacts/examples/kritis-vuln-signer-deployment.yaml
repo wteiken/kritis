@@ -1,0 +1,27 @@
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  name: kritis-vuln-signer
+  namespace: default
+  labels:
+    app: kritis-vuln-signer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kritis-vuln-signer
+  template:
+    metadata:
+      labels:
+        app: kritis-vuln-signer
+    spec:
+      containers:
+      - name: kritis-vuln-signer
+        image: gcr.io/kritis-test1/kritis-vuln-signer:4a36a68bbd160f59f539c23051d0c8559de7baa1
+        imagePullPolicy: Always
+        args: ["--gcr_project=binauthz-demo1-builder", "--logtostderr"]
+        env:
+          - name: SIGNER_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace

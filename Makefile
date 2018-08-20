@@ -87,6 +87,7 @@ TEST_REGISTRY?=gcr.io/kritis-int-test
 REPOPATH ?= $(ORG)/$(PROJECT)
 SERVICE_PACKAGE = $(REPOPATH)/cmd/kritis/admission
 GCB_SIGNER_PACKAGE = $(REPOPATH)/cmd/kritis/gcbsigner
+VULN_SIGNER_PACKAGE = $(REPOPATH)/cmd/kritis/vulnsigner
 KRITIS_PROJECT = $(REPOPATH)/kritis
 
 out/kritis-server: $(GO_FILES)
@@ -94,6 +95,9 @@ out/kritis-server: $(GO_FILES)
 
 out/gcb-signer: $(GO_FILES)
 	GOARCH=$(GOARCH) GOOS=linux CGO_ENABLED=0 go build -ldflags "$(GO_LDFLAGS)" -o $@ $(GCB_SIGNER_PACKAGE)
+
+out/vuln-signer: $(GO_FILES)
+	GOARCH=$(GOARCH) GOOS=linux CGO_ENABLED=0 go build -ldflags "$(GO_LDFLAGS)" -o $@ $(VULN_SIGNER_PACKAGE)
 
 .PHONY: build-image
 build-image: out/kritis-server
@@ -171,4 +175,12 @@ gcb-signer-image: out/gcb-signer-image
 .PHONY: gcb-signer-push-image
 gcb-signer-push-image: gcb-signer-image
 	docker push $(REGISTRY)/kritis-gcb-signer:$(IMAGE_TAG)
+
+.PHONY: vuln-signer-image
+vuln-signer-image: out/vuln-signer-image
+	docker build -t $(REGISTRY)/kritis-vuln-signer:$(IMAGE_TAG) -f deploy/kritis-vuln-signer/Dockerfile .
+
+.PHONY: vuln-signer-push-image
+vuln-signer-push-image: vuln-signer-image
+	docker push $(REGISTRY)/kritis-vuln-signer:$(IMAGE_TAG)
 
