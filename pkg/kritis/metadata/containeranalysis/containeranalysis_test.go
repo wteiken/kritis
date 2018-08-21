@@ -116,22 +116,3 @@ func Test_isRegistryGCR(t *testing.T) {
 		})
 	}
 }
-
-func TestGetProjectFromNoteRef(t *testing.T) {
-	tests := []struct {
-		name   string
-		input  string
-		shdErr bool
-		output string
-	}{
-		{"good", "v1aplha1/projects/name", false, "name"},
-		{"bad1", "some", true, ""},
-		{"bad2", "some/t", true, ""},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			actual, err := getProjectFromNoteReference(tc.input)
-			testutil.CheckErrorAndDeepEqual(t, tc.shdErr, err, tc.output, actual)
-		})
-	}
-}

@@ -17,6 +17,9 @@ limitations under the License.
 package v1beta1
 
 import (
+	"fmt"
+	"strings"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -115,4 +118,24 @@ type AttestationAuthorityList struct {
 	metav1.ListMeta `json:"metadata"`
 
 	Items []AttestationAuthority `json:"items"`
+}
+
+func (a *AttestationAuthority) GetNoteName() string {
+	return fmt.Sprintf("%s/notes/%s", a.GetNoteParent(), a.Name)
+}
+
+func (a *AttestationAuthority) GetNoteParent() string {
+	str := strings.Split(a.Name, "/")
+	if len(str) < 3 {
+		return ""
+	}
+	return fmt.Sprintf("projects/%s", str[2])
+}
+
+func (a *AttestationAuthority) IsValid() error {
+	str := strings.Split(a.Name, "/")
+	if len(str) < 3 {
+		return fmt.Errorf("invalid Note Reference. should be in format <api>/projects/<project_id>")
+	}
+	return nil
 }

@@ -155,18 +155,9 @@ func getResourceURL(containerImage string) string {
 	return fmt.Sprintf("%s%s", constants.ResourceURLPrefix, containerImage)
 }
 
-func getProjectFromNoteReference(ref string) (string, error) {
-	str := strings.Split(ref, "/")
-	if len(str) < 3 {
-		return "", fmt.Errorf("invalid Note Reference. should be in format <api>/projects/<project_id>")
-	}
-	return str[2], nil
-}
-
 func (c ContainerAnalysis) CreateAttestationNote(aa *kritisv1beta1.AttestationAuthority) (*containeranalysispb.Note, error) {
-	noteProject, err := getProjectFromNoteReference(aa.Spec.NoteReference)
-	if err != nil {
-		return nil, err
+	if err := aa.IsValid(); err != nil {
+		return nil, fmt.Errorf("invalid attestation authority %q: %v", aa.Name, err)
 	}
 	aaNote := &containeranalysispb.AttestationAuthority{
 		Hint: &containeranalysispb.AttestationAuthority_AttestationAuthorityHint{
@@ -174,29 +165,26 @@ func (c ContainerAnalysis) CreateAttestationNote(aa *kritisv1beta1.AttestationAu
 		},
 	}
 	note := containeranalysispb.Note{
-		Name:             fmt.Sprintf("projects/%s/notes/%s", noteProject, aa.Name),
 		ShortDescription: fmt.Sprintf("Image Policy Security Attestor"),
 		LongDescription:  fmt.Sprintf("Image Policy Security Attestor deployed in %s namespace", aa.Namespace),
 		NoteType: &containeranalysispb.Note_AttestationAuthority{
 			AttestationAuthority: aaNote,
 		},
 	}
-
 	req := &containeranalysispb.CreateNoteRequest{
 		Note:   &note,
 		NoteId: aa.Name,
-		Parent: fmt.Sprintf("projects/%s", noteProject),
+		Parent: aa.GetNoteParent(),
 	}
 	return c.client.CreateNote(c.ctx, req)
 }
 
 func (c ContainerAnalysis) GetAttestationNote(aa *kritisv1beta1.AttestationAuthority) (*containeranalysispb.Note, error) {
-	noteProject, err := getProjectFromNoteReference(aa.Spec.NoteReference)
-	if err != nil {
-		return nil, err
+	if err := aa.IsValid(); err != nil {
+		return nil, fmt.Errorf("invalid attestation authority %q: %v", aa.Name, err)
 	}
 	req := &containeranalysispb.GetNoteRequest{
-		Name: fmt.Sprintf("projects/%s/notes/%s", noteProject, aa.Name),
+		Name: aa.GetNoteName(),
 	}
 	return c.client.GetNote(c.ctx, req)
 }
@@ -242,12 +230,11 @@ func (c ContainerAnalysis) CreateAttestationOccurence(note *containeranalysispb.
 
 // These following methods are used for Testing.
 func (c ContainerAnalysis) DeleteAttestationNote(aa *kritisv1beta1.AttestationAuthority) error {
-	noteProject, err := getProjectFromNoteReference(aa.Spec.NoteReference)
-	if err != nil {
-		return err
+	if err := aa.IsValid(); err != err {
+		return fmt.Errorf("invalid attestation authority %q: %v", aa.Name, err)
 	}
 	req := &containeranalysispb.DeleteNoteRequest{
-		Name: fmt.Sprintf("projects/%s/notes/%s", noteProject, aa.Name),
+		Name: aa.GetNoteName(),
 	}
 	return c.client.DeleteNote(c.ctx, req)
 }
